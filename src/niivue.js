@@ -2206,6 +2206,81 @@ Niivue.prototype.removeHaze = async function (level = 5, volIndex = 0) {
   this.drawScene();
 };
 
+
+/**
+ * return draw image 
+ * @param {string} fnm filename of NIfTI image to create
+ * @example niivue.saveDraw('testDraw.nii');
+ * @see
+ */
+Niivue.prototype.saveDraw = async function (fnm) {
+  if (!this.back.hasOwnProperty("dims")) {
+    log.debug("No voxelwise image open");
+    return null;
+  }
+  if (!this.drawBitmap) {
+    log.debug("No drawing open");
+    return null;
+  }
+  let perm = this.volumes[0].permRAS;
+  if (perm[0] === 1 && perm[1] === 2 && perm[2] === 3) {
+     return await this.volumes[0].saveToUint8Array(fnm, this.drawBitmap); // createEmptyDrawing
+  } else {
+    let dims = this.volumes[0].hdr.dims; //reverse to original
+    //reverse RAS to native space, layout is mrtrix MIF format
+    // for details see NVImage.readMIF()
+    let layout = [0, 0, 0];
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        if (Math.abs(perm[i]) - 1 !== j) continue;
+        layout[j] = i * Math.sign(perm[i]);
+      }
+    }
+    let stride = 1;
+    let instride = [1, 1, 1];
+    let inflip = [false, false, false];
+    for (let i = 0; i < layout.length; i++) {
+      for (let j = 0; j < layout.length; j++) {
+        let a = Math.abs(layout[j]);
+        if (a != i) continue;
+        instride[j] = stride;
+        //detect -0: https://medium.com/coding-at-dawn/is-negative-zero-0-a-number-in-javascript-c62739f80114
+        if (layout[j] < 0 || Object.is(layout[j], -0)) inflip[j] = true;
+        stride *= dims[j + 1];
+      }
+    }
+    //lookup table for flips and stride offsets:
+    const range = (start, stop, step) =>
+      Array.from(
+        { length: (stop - start) / step + 1 },
+        (_, i) => start + i * step
+      );
+    let xlut = range(0, dims[1] - 1, 1);
+    if (inflip[0]) xlut = range(dims[1] - 1, 0, -1);
+    for (let i = 0; i < dims[1]; i++) xlut[i] *= instride[0];
+    let ylut = range(0, dims[2] - 1, 1);
+    if (inflip[1]) ylut = range(dims[2] - 1, 0, -1);
+    for (let i = 0; i < dims[2]; i++) ylut[i] *= instride[1];
+    let zlut = range(0, dims[3] - 1, 1);
+    if (inflip[2]) zlut = range(dims[3] - 1, 0, -1);
+    for (let i = 0; i < dims[3]; i++) zlut[i] *= instride[2];
+    //convert data
+
+    let inVs = new Uint8Array(this.drawBitmap);
+    let outVs = new Uint8Array(dims[1] * dims[2] * dims[3]);
+    let j = 0;
+    for (let z = 0; z < dims[3]; z++) {
+      for (let y = 0; y < dims[2]; y++) {
+        for (let x = 0; x < dims[1]; x++) {
+          outVs[j] = inVs[xlut[x] + ylut[y] + zlut[z]];
+          j++;
+        } //for x
+      } //for y
+    } //for z
+    return await this.volumes[0].saveToUint8Array(fnm, outVs);
+  } 
+};
+
 /**
  * save voxel-based image to disk
  * @param {string} fnm filename of NIfTI image to create
