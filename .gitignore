@@ -5,8 +5,6 @@ devdocs
 /docs/niivue*.js
 /demos/niivue*.js
 /tests/niivue*.js
-niivue.es.js
-niivue.umd.js
 /downloads
 __diff_output__
 
